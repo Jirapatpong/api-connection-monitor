@@ -39,8 +39,12 @@ class App:
     def __init__(self, root):
         self.root = root
         self.root.title("API Connection Monitor")
-        self.root.geometry("650x450")
+        self.root.geometry("600x450")
         self.root.resizable(False, False)
+        
+        # Apply a modern theme
+        self.style = ttk.Style(self.root)
+        self.style.theme_use('clam')
 
         self.scheduler_thread = None
         self.stop_scheduler = threading.Event()
@@ -59,26 +63,30 @@ class App:
         ttk.Label(config_frame, text="API Endpoint:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.host_entry = ttk.Entry(config_frame)
         self.host_entry.insert(0, "tmgposapi.themall.co.th")
-        self.host_entry.grid(row=0, column=1, columnspan=3, sticky="ew", padx=5, pady=5)
+        self.host_entry.grid(row=0, column=1, columnspan=2, sticky="ew", padx=5, pady=5)
 
         ttk.Label(config_frame, text="Schedule Times (HH:MM):").grid(row=1, column=0, sticky="w", padx=5, pady=5)
-        self.time1_entry = ttk.Entry(config_frame, width=10)
+        
+        # Frame to hold the time entries for better alignment
+        time_frame = ttk.Frame(config_frame)
+        time_frame.grid(row=1, column=1, columnspan=2, sticky="ew", padx=5, pady=5)
+        self.time1_entry = ttk.Entry(time_frame, width=10)
         self.time1_entry.insert(0, "12:00")
-        self.time1_entry.grid(row=1, column=1, sticky="w", padx=5, pady=5)
-        self.time2_entry = ttk.Entry(config_frame, width=10)
+        self.time1_entry.pack(side=tk.LEFT, padx=(0, 5))
+        self.time2_entry = ttk.Entry(time_frame, width=10)
         self.time2_entry.insert(0, "17:00")
-        self.time2_entry.grid(row=1, column=2, sticky="w", padx=5, pady=5)
-        self.time3_entry = ttk.Entry(config_frame, width=10)
+        self.time2_entry.pack(side=tk.LEFT, padx=5)
+        self.time3_entry = ttk.Entry(time_frame, width=10)
         self.time3_entry.insert(0, "19:00")
-        self.time3_entry.grid(row=1, column=3, sticky="w", padx=5, pady=5)
-
+        self.time3_entry.pack(side=tk.LEFT, padx=5)
+        
         ttk.Label(config_frame, text="Log File Path:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
         self.log_path_entry = ttk.Entry(config_frame)
         self.log_path_entry.insert(0, "C:\\Latency\\latency test")
-        self.log_path_entry.grid(row=2, column=1, columnspan=3, sticky="ew", padx=5, pady=5)
+        self.log_path_entry.grid(row=2, column=1, sticky="ew", padx=5, pady=5)
         
         self.browse_button = ttk.Button(config_frame, text="Browse...", command=self.select_log_folder)
-        self.browse_button.grid(row=2, column=4, padx=5, pady=5)
+        self.browse_button.grid(row=2, column=2, padx=5, pady=5)
 
         # Control Section
         control_frame = ttk.Frame(self.main_frame, padding="10")
@@ -94,7 +102,7 @@ class App:
         log_frame = ttk.LabelFrame(self.main_frame, text="Status Log", padding="10")
         log_frame.pack(fill=tk.BOTH, expand=True, pady=5)
 
-        self.log_area = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, height=10)
+        self.log_area = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, height=10, relief="flat")
         self.log_area.pack(fill=tk.BOTH, expand=True)
         
         self.log("Welcome to the API Connection Monitor.")
@@ -129,9 +137,9 @@ class App:
         time_entries = [self.time1_entry.get(), self.time2_entry.get(), self.time3_entry.get()]
 
         for t in time_entries:
-            if t.strip(): # If the entry is not empty
+            if t.strip():
                 try:
-                    time.strptime(t.strip(), '%H:%M') # Validate HH:MM format
+                    time.strptime(t.strip(), '%H:%M')
                     schedule_times_str.append(t.strip())
                 except ValueError:
                     self.log(f"Error: Invalid time format '{t}'. Please use HH:MM (24-hour format).")
@@ -152,7 +160,7 @@ class App:
 
         self.log(f"Monitoring started for {self.host}. Scheduled times: {', '.join(schedule_times_str)}")
         
-        schedule.clear() # Clear any old schedules
+        schedule.clear()
         for scheduled_time in schedule_times_str:
             schedule.every().day.at(scheduled_time).do(self.run_diagnostics_thread)
         
@@ -160,7 +168,6 @@ class App:
         self.scheduler_thread = threading.Thread(target=self.run_scheduler, daemon=True)
         self.scheduler_thread.start()
 
-        # Run once immediately after a short delay
         threading.Timer(2.0, self.run_diagnostics_thread).start()
 
     def stop_monitoring(self):
@@ -236,6 +243,7 @@ class App:
     # --- System Tray Logic ---
     def hide_to_tray(self):
         """Hides the main window and shows a system tray icon in a separate thread."""
+        self.log("Minimizing to system tray...")
         self.root.withdraw()
         icon_data = base64.b64decode(ICON_B64)
         image = Image.open(BytesIO(icon_data))
@@ -260,7 +268,7 @@ class App:
 
 # --- Main Application Execution ---
 if __name__ == '__main__':
-    instance_name = "Global\\API_Monitor_UI_Mutex_v2"
+    instance_name = "Global\\API_Monitor_UI_Mutex_v3"
     instance = SingleInstance(instance_name)
     if instance.is_running():
         root = tk.Tk()
