@@ -4,29 +4,17 @@ import sys
 import socket
 import threading
 import time
-import argparse
 from datetime import datetime
 import schedule
-from pystray import MenuItem as item, Icon
-from PIL import Image
 import win32event
 import win32api
-import win32com.client
 from winerror import ERROR_ALREADY_EXISTS
-import base64
-from io import BytesIO
-
-# --- Configuration (Hardcoded) ---
-TARGET_HOST = "tmgposapi.themall.co.th"
-INTERVAL_MINUTES = 15
-LOG_FOLDER = "C:\\Latency\\latency test"
-
-# --- Base64 Encoded Icon (Corrected and Verified) ---
-# This new string is guaranteed to be valid and will fix the 'Incorrect padding' error.
-ICON_B64 = b'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABoSURBVHja7cEBAQAAAIIg/69uSEABAAAAAAAAAAAAAAB8GgIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECHA3AQSRAAH8jcxgAAAAAElFTkSuQmCC'
+import tkinter as tk
+from tkinter import ttk, scrolledtext
 
 # --- Single Instance Lock using a Mutex ---
 class SingleInstance:
+    """Ensures only one instance of the application can run."""
     def __init__(self, name):
         self.mutex_name = name
         self.mutex = win32event.CreateMutex(None, 1, self.mutex_name)
@@ -39,125 +27,172 @@ class SingleInstance:
         if self.mutex:
             win32api.CloseHandle(self.mutex)
 
-# --- Startup Installation Logic ---
-def install_startup():
-    """Creates a shortcut in the user's Startup folder."""
-    exe_path = os.path.realpath(sys.executable)
-    startup_folder = os.path.join(os.getenv('APPDATA'), 'Microsoft\\Windows\\Start Menu\\Programs\\Startup')
-    shortcut_path = os.path.join(startup_folder, "API Connection Monitor.lnk")
-    
-    shell = win32com.client.Dispatch("WScript.Shell")
-    shortcut = shell.CreateShortCut(shortcut_path)
-    shortcut.Targetpath = exe_path
-    shortcut.WorkingDirectory = os.path.dirname(exe_path)
-    shortcut.IconLocation = exe_path
-    shortcut.save()
-    print(f"Success! Shortcut created in Startup folder.")
-    print("The API Monitor will now start automatically on login.")
+# --- Main Application Class ---
+class App:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("API Connection Monitor")
+        self.root.geometry("600x400")
+        self.root.resizable(False, False)
 
-# --- Core Diagnostic Function ---
-def run_diagnostics():
-    print(f"[{datetime.now()}] Running diagnostics for {TARGET_HOST}...")
-    computer_name = socket.gethostname()
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    file_name = f"{computer_name}_{timestamp}.txt"
-    
-    os.makedirs(LOG_FOLDER, exist_ok=True)
-    full_path = os.path.join(LOG_FOLDER, file_name)
+        self.scheduler_thread = None
+        self.stop_scheduler = threading.Event()
 
-    # Use a temporary batch file to avoid complex quoting issues
-    bat_content = f"""@echo off
+        # --- UI Elements ---
+        self.main_frame = ttk.Frame(root, padding="10")
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Configuration Section
+        config_frame = ttk.LabelFrame(self.main_frame, text="Configuration", padding="10")
+        config_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Label(config_frame, text="API Endpoint:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        self.host_entry = ttk.Entry(config_frame, width=40)
+        self.host_entry.insert(0, "tmgposapi.themall.co.th")
+        self.host_entry.grid(row=0, column=1, padx=5, pady=5)
+
+        ttk.Label(config_frame, text="Frequency (minutes):").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        self.interval_entry = ttk.Entry(config_frame, width=10)
+        self.interval_entry.insert(0, "15")
+        self.interval_entry.grid(row=1, column=1, sticky="w", padx=5, pady=5)
+
+        # Control Section
+        control_frame = ttk.Frame(self.main_frame, padding="10")
+        control_frame.pack(fill=tk.X, pady=5)
+
+        self.start_button = ttk.Button(control_frame, text="Start Monitoring", command=self.start_monitoring)
+        self.start_button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
+
+        self.stop_button = ttk.Button(control_frame, text="Stop Monitoring", command=self.stop_monitoring, state=tk.DISABLED)
+        self.stop_button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
+        
+        # Log Section
+        log_frame = ttk.LabelFrame(self.main_frame, text="Status Log", padding="10")
+        log_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+
+        self.log_area = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, height=10)
+        self.log_area.pack(fill=tk.BOTH, expand=True)
+        
+        self.log("Welcome to the API Connection Monitor.")
+        self.log("Enter your settings and click 'Start Monitoring'.")
+
+    def log(self, message):
+        """Adds a message to the log area on the UI thread."""
+        self.root.after(0, self._log_message, message)
+
+    def _log_message(self, message):
+        """Internal method to update the text widget."""
+        now = datetime.now().strftime("%H:%M:%S")
+        self.log_area.insert(tk.END, f"[{now}] {message}\n")
+        self.log_area.see(tk.END)
+
+    def start_monitoring(self):
+        """Starts the background scheduling and diagnostic process."""
+        self.host = self.host_entry.get()
+        try:
+            self.interval = int(self.interval_entry.get())
+            if self.interval <= 0:
+                raise ValueError
+        except ValueError:
+            self.log("Error: Please enter a valid positive number for the frequency.")
+            return
+
+        self.start_button.config(state=tk.DISABLED)
+        self.stop_button.config(state=tk.NORMAL)
+        self.host_entry.config(state=tk.DISABLED)
+        self.interval_entry.config(state=tk.DISABLED)
+
+        self.log(f"Monitoring started for {self.host} every {self.interval} minutes.")
+        
+        # Setup scheduler
+        schedule.every(self.interval).minutes.do(self.run_diagnostics_thread)
+        
+        self.stop_scheduler.clear()
+        self.scheduler_thread = threading.Thread(target=self.run_scheduler, daemon=True)
+        self.scheduler_thread.start()
+
+        # Run once immediately after a short delay
+        threading.Timer(2.0, self.run_diagnostics_thread).start()
+
+    def stop_monitoring(self):
+        """Stops the scheduler."""
+        self.stop_scheduler.set()
+        schedule.clear()
+        
+        self.start_button.config(state=tk.NORMAL)
+        self.stop_button.config(state=tk.DISABLED)
+        self.host_entry.config(state=tk.NORMAL)
+        self.interval_entry.config(state=tk.NORMAL)
+        
+        self.log("Monitoring stopped by user.")
+
+    def run_scheduler(self):
+        """The loop that runs the scheduler."""
+        while not self.stop_scheduler.is_set():
+            schedule.run_pending()
+            time.sleep(1)
+
+    def run_diagnostics_thread(self):
+        """Wrapper to run diagnostics in a separate thread to avoid freezing the UI."""
+        threading.Thread(target=self.run_diagnostics, daemon=True).start()
+
+    def run_diagnostics(self):
+        """The core diagnostic function that runs CMD commands."""
+        self.log(f"Running diagnostics for {self.host}...")
+        log_folder = "C:\\Latency\\latency test"
+        computer_name = socket.gethostname()
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        file_name = f"{computer_name}_{timestamp}.txt"
+        
+        os.makedirs(log_folder, exist_ok=True)
+        full_path = os.path.join(log_folder, file_name)
+
+        bat_content = f"""@echo off
 (
     ECHO COMPREHENSIVE NETWORK DIAGNOSTIC REPORT
     ECHO =================================================
     ECHO Report generated on: %date% at %time%
-    ECHO Target Host: {TARGET_HOST}
+    ECHO Target Host: {self.host}
     ECHO.
     ECHO.
     ECHO ===== 1. TRACEROUTE TO VIEW NETWORK PATH =====
     ECHO.
-    tracert {TARGET_HOST}
+    tracert {self.host}
     ECHO.
     ECHO.
     ECHO ===== 2. DNS LATENCY & RESOLUTION TEST =====
     ECHO.
-    powershell -ExecutionPolicy Bypass -Command "Measure-Command {{Resolve-DnsName {TARGET_HOST} -Type A -ErrorAction SilentlyContinue}}"
+    powershell -ExecutionPolicy Bypass -Command "Measure-Command {{Resolve-DnsName {self.host} -Type A -ErrorAction SilentlyContinue}}"
     ECHO.
     ECHO.
     ECHO ===== 3. CURL API CONNECTION TIMING =====
     ECHO.
-    curl -o nul -s -w "DNS Lookup:      %%{{time_namelookup}}s\\nTCP Connection:  %%{{time_connect}}s\\nSSL Handshake:   %%{{time_appconnect}}s\\nTTFB:              %%{{time_starttransfer}}s\\nTotal Time:      %%{{time_total}}s\\n" https://{TARGET_HOST}
+    curl -o nul -s -w "DNS Lookup:      %%{{time_namelookup}}s\\nTCP Connection:  %%{{time_connect}}s\\nSSL Handshake:   %%{{time_appconnect}}s\\nTTFB:              %%{{time_starttransfer}}s\\nTotal Time:      %%{{time_total}}s\\n" https://{self.host}
 ) > "{full_path}" 2>&1
 """
-    temp_bat_path = os.path.join(os.environ["TEMP"], "diag_script.bat")
-    try:
-        with open(temp_bat_path, "w") as f:
-            f.write(bat_content)
-        
-        subprocess.run([temp_bat_path], shell=True, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
-        print(f"[{datetime.now()}] Diagnostics complete. Log saved to {full_path}")
-    except Exception as e:
-        print(f"[{datetime.now()}] A critical error occurred during diagnostics: {e}")
-    finally:
-        if os.path.exists(temp_bat_path):
-            os.remove(temp_bat_path)
-
-# --- Scheduler Setup ---
-def run_scheduler():
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
-
-# --- System Tray Application Setup ---
-def setup_tray_app():
-    icon_data = base64.b64decode(ICON_B64)
-    icon_image = Image.open(BytesIO(icon_data))
-
-    def on_run_now(icon, item):
-        print("Manual diagnostic run triggered.")
-        threading.Thread(target=run_diagnostics, daemon=True).start()
-
-    def on_open_logs(icon, item):
-        os.makedirs(LOG_FOLDER, exist_ok=True)
-        os.startfile(LOG_FOLDER)
-
-    def on_exit(icon, item):
-        icon.stop()
-
-    menu = (
-        item('Run Diagnostics Now', on_run_now),
-        item('Open Logs Folder', on_open_logs),
-        item('Exit', on_exit)
-    )
-    icon = Icon("API_Monitor", icon_image, "API Connection Monitor", menu)
-    icon.run()
+        temp_bat_path = os.path.join(os.environ["TEMP"], "diag_script.bat")
+        try:
+            with open(temp_bat_path, "w") as f:
+                f.write(bat_content)
+            
+            subprocess.run([temp_bat_path], shell=True, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            self.log(f"Diagnostics complete. Log saved to {full_path}")
+        except Exception as e:
+            self.log(f"A critical error occurred during diagnostics: {e}")
+        finally:
+            if os.path.exists(temp_bat_path):
+                os.remove(temp_bat_path)
 
 # --- Main Application Execution ---
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="API Connection Monitor")
-    parser.add_argument('--install', action='store_true', help='Install the application to run on startup.')
-    args = parser.parse_args()
-
-    if args.install:
-        install_startup()
-        sys.exit(0)
-
-    instance_name = "Global\\API_Monitor_Mutex_3B6A8D_v3" # Changed version to avoid conflict
+    instance_name = "Global\\API_Monitor_UI_Mutex"
     instance = SingleInstance(instance_name)
     if instance.is_running():
+        # You might want to use a proper message box in a real app
         print("Another instance is already running. Exiting.")
         sys.exit(1)
-
-    print(f"Monitoring {TARGET_HOST} every {INTERVAL_MINUTES} minutes.")
-    print(f"Logs will be saved to: {LOG_FOLDER}")
-
-    schedule.every(INTERVAL_MINUTES).minutes.do(run_diagnostics)
-    
-    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
-    scheduler_thread.start()
-    
-    # Run diagnostics once on startup after a short delay to let the system settle.
-    threading.Timer(10.0, run_diagnostics).start()
-
-    setup_tray_app()
+        
+    root = tk.Tk()
+    app = App(root)
+    root.mainloop()
 
