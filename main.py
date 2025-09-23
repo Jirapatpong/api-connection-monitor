@@ -42,7 +42,6 @@ class App:
         self.root.geometry("600x450")
         self.root.resizable(False, False)
         
-        # Apply a modern theme
         self.style = ttk.Style(self.root)
         self.style.theme_use('clam')
 
@@ -67,7 +66,6 @@ class App:
 
         ttk.Label(config_frame, text="Schedule Times (HH:MM):").grid(row=1, column=0, sticky="w", padx=5, pady=5)
         
-        # Frame to hold the time entries for better alignment
         time_frame = ttk.Frame(config_frame)
         time_frame.grid(row=1, column=1, columnspan=2, sticky="ew", padx=5, pady=5)
         self.time1_entry = ttk.Entry(time_frame, width=10)
@@ -108,28 +106,23 @@ class App:
         self.log("Welcome to the API Connection Monitor.")
         self.log("Configure your settings and click 'Start Monitoring'.")
 
-        # Handle window close event
         self.root.protocol("WM_DELETE_WINDOW", self.hide_to_tray)
 
     def select_log_folder(self):
-        """Opens a dialog to select the log folder."""
         folder_selected = filedialog.askdirectory()
         if folder_selected:
             self.log_path_entry.delete(0, tk.END)
             self.log_path_entry.insert(0, folder_selected)
 
     def log(self, message):
-        """Adds a message to the log area on the UI thread."""
         self.root.after(0, self._log_message, message)
 
     def _log_message(self, message):
-        """Internal method to update the text widget."""
         now = datetime.now().strftime("%H:%M:%S")
         self.log_area.insert(tk.END, f"[{now}] {message}\n")
         self.log_area.see(tk.END)
 
     def start_monitoring(self):
-        """Starts the background scheduling and diagnostic process."""
         self.host = self.host_entry.get()
         self.log_folder = self.log_path_entry.get()
         
@@ -149,14 +142,10 @@ class App:
             self.log("Error: Please enter at least one valid schedule time.")
             return
 
-        self.start_button.config(state=tk.DISABLED)
+        # Disable UI components
+        for widget in [self.start_button, self.host_entry, self.time1_entry, self.time2_entry, self.time3_entry, self.log_path_entry, self.browse_button]:
+            widget.config(state=tk.DISABLED)
         self.stop_button.config(state=tk.NORMAL)
-        self.host_entry.config(state=tk.DISABLED)
-        self.time1_entry.config(state=tk.DISABLED)
-        self.time2_entry.config(state=tk.DISABLED)
-        self.time3_entry.config(state=tk.DISABLED)
-        self.log_path_entry.config(state=tk.DISABLED)
-        self.browse_button.config(state=tk.DISABLED)
 
         self.log(f"Monitoring started for {self.host}. Scheduled times: {', '.join(schedule_times_str)}")
         
@@ -171,23 +160,17 @@ class App:
         threading.Timer(2.0, self.run_diagnostics_thread).start()
 
     def stop_monitoring(self):
-        """Stops the scheduler."""
         self.stop_scheduler.set()
         schedule.clear()
         
-        self.start_button.config(state=tk.NORMAL)
+        # Enable UI components
+        for widget in [self.start_button, self.host_entry, self.time1_entry, self.time2_entry, self.time3_entry, self.log_path_entry, self.browse_button]:
+            widget.config(state=tk.NORMAL)
         self.stop_button.config(state=tk.DISABLED)
-        self.host_entry.config(state=tk.NORMAL)
-        self.time1_entry.config(state=tk.NORMAL)
-        self.time2_entry.config(state=tk.NORMAL)
-        self.time3_entry.config(state=tk.NORMAL)
-        self.log_path_entry.config(state=tk.NORMAL)
-        self.browse_button.config(state=tk.NORMAL)
         
         self.log("Monitoring stopped by user.")
 
     def run_scheduler(self):
-        """The loop that runs the scheduler."""
         while not self.stop_scheduler.is_set():
             schedule.run_pending()
             time.sleep(1)
@@ -240,7 +223,7 @@ class App:
             if os.path.exists(temp_bat_path):
                 os.remove(temp_bat_path)
 
-    # --- System Tray Logic ---
+    # --- System Tray Logic (Corrected) ---
     def hide_to_tray(self):
         """Hides the main window and shows a system tray icon in a separate thread."""
         self.log("Minimizing to system tray...")
@@ -250,6 +233,7 @@ class App:
         menu = (item('Show', self.show_from_tray), item('Exit', self.exit_app))
         self.icon = Icon("API_Monitor", image, "API Connection Monitor", menu)
         
+        # This is the key change: run the icon in a separate thread
         self.icon_thread = threading.Thread(target=self.icon.run, daemon=True)
         self.icon_thread.start()
 
@@ -268,7 +252,7 @@ class App:
 
 # --- Main Application Execution ---
 if __name__ == '__main__':
-    instance_name = "Global\\API_Monitor_UI_Mutex_v3"
+    instance_name = "Global\\API_Monitor_UI_Mutex_v4"
     instance = SingleInstance(instance_name)
     if instance.is_running():
         root = tk.Tk()
