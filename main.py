@@ -10,7 +10,7 @@ import win32event
 import win32api
 from winerror import ERROR_ALREADY_EXISTS
 import tkinter as tk
-from tkinter import ttk, scrolledtext, filedialog
+from tkinter import ttk, scrolledtext, filedialog, messagebox
 from pystray import MenuItem as item, Icon
 from PIL import Image
 import base64
@@ -45,6 +45,7 @@ class App:
         self.scheduler_thread = None
         self.stop_scheduler = threading.Event()
         self.icon = None
+        self.icon_thread = None
 
         # --- UI Elements ---
         self.main_frame = ttk.Frame(root, padding="10")
@@ -210,23 +211,26 @@ class App:
             if os.path.exists(temp_bat_path):
                 os.remove(temp_bat_path)
 
-    # --- System Tray Logic ---
+    # --- System Tray Logic (Corrected) ---
     def hide_to_tray(self):
-        """Hides the main window and shows a system tray icon."""
+        """Hides the main window and shows a system tray icon in a separate thread."""
         self.root.withdraw()
         icon_data = base64.b64decode(ICON_B64)
         image = Image.open(BytesIO(icon_data))
         menu = (item('Show', self.show_from_tray), item('Exit', self.exit_app))
         self.icon = Icon("API_Monitor", image, "API Connection Monitor", menu)
-        self.icon.run()
+        
+        # Run the icon in a separate thread
+        self.icon_thread = threading.Thread(target=self.icon.run, daemon=True)
+        self.icon_thread.start()
 
-    def show_from_tray(self):
+    def show_from_tray(self, icon=None, item=None):
         """Shows the main window and stops the tray icon."""
         if self.icon:
             self.icon.stop()
-        self.root.deiconify()
+        self.root.after(0, self.root.deiconify)
 
-    def exit_app(self):
+    def exit_app(self, icon=None, item=None):
         """Cleans up and exits the application."""
         if self.icon:
             self.icon.stop()
@@ -238,10 +242,9 @@ if __name__ == '__main__':
     instance_name = "Global\\API_Monitor_UI_Mutex_v2"
     instance = SingleInstance(instance_name)
     if instance.is_running():
-        # A more user-friendly way to notify the user
         root = tk.Tk()
         root.withdraw()
-        tk.messagebox.showinfo("Application Already Running", 
+        messagebox.showinfo("Application Already Running", 
                                "An instance of the API Connection Monitor is already running.")
         root.destroy()
         sys.exit(1)
