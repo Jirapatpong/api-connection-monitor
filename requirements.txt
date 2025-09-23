@@ -1,0 +1,6 @@
+schedule
+pystray
+pillow
+pywin32
+pywin32-ctypes
+pyinstaller
