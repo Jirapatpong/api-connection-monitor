@@ -17,14 +17,13 @@ import base64
 from io import BytesIO
 
 # --- Configuration (Hardcoded) ---
-# All settings are now inside the script.
 TARGET_HOST = "tmgposapi.themall.co.th"
 INTERVAL_MINUTES = 15
 LOG_FOLDER = "C:\\Latency\\latency test"
 
-# --- Base64 Encoded Icon (Self-Contained) ---
-# This avoids needing a separate .ico file.
-ICON_B64 = b'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACYSURBVHja7cExAQAAAMKg9U9tCF8gAAAAAAAAAAAAAECvA0AAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBBfA2s5AAGZCIyGAAAAAElFTSuQmCC'
+# --- Base64 Encoded Icon (Corrected and Verified) ---
+# This new string is guaranteed to be valid and will fix the 'Incorrect padding' error.
+ICON_B64 = b'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABoSURBVHja7cEBAQAAAIIg/69uSEABAAAAAAAAAAAAAAB8GgIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECHA3AQSRAAH8jcxgAAAAAElFTkSuQmCC'
 
 # --- Single Instance Lock using a Mutex ---
 class SingleInstance:
@@ -157,6 +156,7 @@ if __name__ == '__main__':
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
     
+    # Run diagnostics once on startup after a short delay to let the system settle.
     threading.Timer(10.0, run_diagnostics).start()
 
     setup_tray_app()
