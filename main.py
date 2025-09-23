@@ -1,3 +1,4 @@
+
 import subprocess
 import os
 import sys
@@ -11,7 +12,7 @@ import win32api
 from winerror import ERROR_ALREADY_EXISTS
 import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog, messagebox
-from pystray import MenuItem as item, Icon
+from pystray import MenuItem as item, Icon, Menu
 from PIL import Image
 import base64
 from io import BytesIO
@@ -47,8 +48,12 @@ class App:
 
         self.scheduler_thread = None
         self.stop_scheduler = threading.Event()
+
+        # --- Tray / Icon state ---
         self.icon = None
-        self.icon_thread = None
+        self.icon_visible = False
+        self.icon_created = False
+        self._icon_lock = threading.Lock()
 
         # --- UI Elements ---
         self.main_frame = ttk.Frame(root, padding="10")
@@ -106,8 +111,70 @@ class App:
         self.log("Welcome to the API Connection Monitor.")
         self.log("Configure your settings and click 'Start Monitoring'.")
 
-        self.root.protocol("WM_DELETE_WINDOW", self.hide_to_tray)
+        # Intercept window close to go to tray
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close_clicked)
 
+        # Prepare tray icon once so we don't recreate it
+        self._prepare_tray_icon()
+
+    # ---------- Tray Helpers ----------
+    def _prepare_tray_icon(self):
+        """Create the Icon object and menu once."""
+        with self._icon_lock:
+            if self.icon_created:
+                return
+            icon_data = base64.b64decode(ICON_B64)
+            image = Image.open(BytesIO(icon_data))
+
+            menu = Menu(
+                item('Show', self._tray_show),
+                item('Exit', self._tray_exit)
+            )
+            # Create but do not show yet
+            self.icon = Icon("API_Monitor", image, "API Connection Monitor", menu)
+            self.icon_created = True
+
+    def _ensure_tray_visible(self):
+        """Show the tray icon if it's not visible yet."""
+        with self._icon_lock:
+            if not self.icon_created:
+                self._prepare_tray_icon()
+            if not self.icon_visible:
+                # run_detached ensures we don't block Tk's mainloop
+                self.icon.run_detached(self._tray_setup)
+                self.icon_visible = True
+
+    def _tray_setup(self, icon):
+        # Ensure the icon becomes visible immediately
+        icon.visible = True
+
+    def _tray_show(self, icon, item):  # pystray calls from its own thread
+        # Hide tray icon and bring window to front
+        self.root.after(0, self._show_window_from_tray)
+
+    def _show_window_from_tray(self):
+        with self._icon_lock:
+            if self.icon and self.icon_visible:
+                try:
+                    self.icon.visible = False
+                    self.icon.stop()
+                except Exception:
+                    pass
+                self.icon_visible = False
+        self.root.deiconify()
+        self.root.after(0, self.root.lift)
+
+    def _tray_exit(self, icon, item):
+        # Cleanly exit app from tray
+        self.root.after(0, self.exit_app)
+
+    def on_close_clicked(self):
+        """User clicked the window 'X' button → hide to tray instead of quitting."""
+        self.log("Minimizing to system tray...")
+        self.root.withdraw()
+        self._ensure_tray_visible()
+
+    # ---------- App UI + Logic ----------
     def select_log_folder(self):
         folder_selected = filedialog.askdirectory()
         if folder_selected:
@@ -210,43 +277,34 @@ class App:
     curl -o nul -s -w "DNS Lookup:      %%{{time_namelookup}}s\\nTCP Connection:  %%{{time_connect}}s\\nSSL Handshake:   %%{{time_appconnect}}s\\nTTFB:              %%{{time_starttransfer}}s\\nTotal Time:      %%{{time_total}}s\\n" https://{self.host}
 ) > "{full_path}" 2>&1
 """
-        temp_bat_path = os.path.join(os.environ["TEMP"], "diag_script.bat")
+        temp_bat_path = os.path.join(os.environ.get("TEMP", "."), "diag_script.bat")
         try:
             with open(temp_bat_path, "w", encoding='utf-8') as f:
                 f.write(bat_content)
             
-            subprocess.run([temp_bat_path], shell=True, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            # CREATE_NO_WINDOW may not exist on some Python builds; guard it.
+            creationflag = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            subprocess.run([temp_bat_path], shell=True, check=True, creationflags=creationflag)
             self.log(f"Diagnostics complete. Log saved to {full_path}")
         except Exception as e:
             self.log(f"A critical error occurred during diagnostics: {e}")
         finally:
-            if os.path.exists(temp_bat_path):
-                os.remove(temp_bat_path)
+            try:
+                if os.path.exists(temp_bat_path):
+                    os.remove(temp_bat_path)
+            except Exception:
+                pass
 
-    # --- System Tray Logic (Corrected) ---
-    def hide_to_tray(self):
-        """Hides the main window and shows a system tray icon in a separate thread."""
-        self.log("Minimizing to system tray...")
-        self.root.withdraw()
-        icon_data = base64.b64decode(ICON_B64)
-        image = Image.open(BytesIO(icon_data))
-        menu = (item('Show', self.show_from_tray), item('Exit', self.exit_app))
-        self.icon = Icon("API_Monitor", image, "API Connection Monitor", menu)
-        
-        # This is the key change: run the icon in a separate thread
-        self.icon_thread = threading.Thread(target=self.icon.run, daemon=True)
-        self.icon_thread.start()
-
-    def show_from_tray(self, icon=None, item=None):
-        """Shows the main window and stops the tray icon."""
-        if self.icon:
-            self.icon.stop()
-        self.root.after(0, self.root.deiconify)
-
-    def exit_app(self, icon=None, item=None):
+    def exit_app(self):
         """Cleans up and exits the application."""
-        if self.icon:
-            self.icon.stop()
+        with self._icon_lock:
+            if self.icon and self.icon_visible:
+                try:
+                    self.icon.visible = False
+                    self.icon.stop()
+                except Exception:
+                    pass
+            self.icon_visible = False
         self.stop_monitoring()
         self.root.destroy()
 
@@ -265,4 +323,3 @@ if __name__ == '__main__':
     root = tk.Tk()
     app = App(root)
     root.mainloop()
-
