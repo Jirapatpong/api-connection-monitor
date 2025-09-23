@@ -39,7 +39,7 @@ class App:
     def __init__(self, root):
         self.root = root
         self.root.title("API Connection Monitor")
-        self.root.geometry("600x450")
+        self.root.geometry("650x450")
         self.root.resizable(False, False)
 
         self.scheduler_thread = None
@@ -57,22 +57,28 @@ class App:
         config_frame.columnconfigure(1, weight=1)
 
         ttk.Label(config_frame, text="API Endpoint:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-        self.host_entry = ttk.Entry(config_frame, width=40)
+        self.host_entry = ttk.Entry(config_frame)
         self.host_entry.insert(0, "tmgposapi.themall.co.th")
-        self.host_entry.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
+        self.host_entry.grid(row=0, column=1, columnspan=3, sticky="ew", padx=5, pady=5)
 
-        ttk.Label(config_frame, text="Frequency (minutes):").grid(row=1, column=0, sticky="w", padx=5, pady=5)
-        self.interval_entry = ttk.Entry(config_frame, width=10)
-        self.interval_entry.insert(0, "15")
-        self.interval_entry.grid(row=1, column=1, sticky="w", padx=5, pady=5)
+        ttk.Label(config_frame, text="Schedule Times (HH:MM):").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        self.time1_entry = ttk.Entry(config_frame, width=10)
+        self.time1_entry.insert(0, "12:00")
+        self.time1_entry.grid(row=1, column=1, sticky="w", padx=5, pady=5)
+        self.time2_entry = ttk.Entry(config_frame, width=10)
+        self.time2_entry.insert(0, "17:00")
+        self.time2_entry.grid(row=1, column=2, sticky="w", padx=5, pady=5)
+        self.time3_entry = ttk.Entry(config_frame, width=10)
+        self.time3_entry.insert(0, "19:00")
+        self.time3_entry.grid(row=1, column=3, sticky="w", padx=5, pady=5)
 
         ttk.Label(config_frame, text="Log File Path:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
-        self.log_path_entry = ttk.Entry(config_frame, width=40)
+        self.log_path_entry = ttk.Entry(config_frame)
         self.log_path_entry.insert(0, "C:\\Latency\\latency test")
-        self.log_path_entry.grid(row=2, column=1, sticky="ew", padx=5, pady=5)
+        self.log_path_entry.grid(row=2, column=1, columnspan=3, sticky="ew", padx=5, pady=5)
         
         self.browse_button = ttk.Button(config_frame, text="Browse...", command=self.select_log_folder)
-        self.browse_button.grid(row=2, column=2, padx=5, pady=5)
+        self.browse_button.grid(row=2, column=4, padx=5, pady=5)
 
         # Control Section
         control_frame = ttk.Frame(self.main_frame, padding="10")
@@ -118,29 +124,43 @@ class App:
         """Starts the background scheduling and diagnostic process."""
         self.host = self.host_entry.get()
         self.log_folder = self.log_path_entry.get()
-        try:
-            self.interval = int(self.interval_entry.get())
-            if self.interval <= 0:
-                raise ValueError
-        except ValueError:
-            self.log("Error: Please enter a valid positive number for the frequency.")
+        
+        schedule_times_str = []
+        time_entries = [self.time1_entry.get(), self.time2_entry.get(), self.time3_entry.get()]
+
+        for t in time_entries:
+            if t.strip(): # If the entry is not empty
+                try:
+                    time.strptime(t.strip(), '%H:%M') # Validate HH:MM format
+                    schedule_times_str.append(t.strip())
+                except ValueError:
+                    self.log(f"Error: Invalid time format '{t}'. Please use HH:MM (24-hour format).")
+                    return
+
+        if not schedule_times_str:
+            self.log("Error: Please enter at least one valid schedule time.")
             return
 
         self.start_button.config(state=tk.DISABLED)
         self.stop_button.config(state=tk.NORMAL)
         self.host_entry.config(state=tk.DISABLED)
-        self.interval_entry.config(state=tk.DISABLED)
+        self.time1_entry.config(state=tk.DISABLED)
+        self.time2_entry.config(state=tk.DISABLED)
+        self.time3_entry.config(state=tk.DISABLED)
         self.log_path_entry.config(state=tk.DISABLED)
         self.browse_button.config(state=tk.DISABLED)
 
-        self.log(f"Monitoring started for {self.host} every {self.interval} minutes.")
+        self.log(f"Monitoring started for {self.host}. Scheduled times: {', '.join(schedule_times_str)}")
         
-        schedule.every(self.interval).minutes.do(self.run_diagnostics_thread)
+        schedule.clear() # Clear any old schedules
+        for scheduled_time in schedule_times_str:
+            schedule.every().day.at(scheduled_time).do(self.run_diagnostics_thread)
         
         self.stop_scheduler.clear()
         self.scheduler_thread = threading.Thread(target=self.run_scheduler, daemon=True)
         self.scheduler_thread.start()
 
+        # Run once immediately after a short delay
         threading.Timer(2.0, self.run_diagnostics_thread).start()
 
     def stop_monitoring(self):
@@ -151,7 +171,9 @@ class App:
         self.start_button.config(state=tk.NORMAL)
         self.stop_button.config(state=tk.DISABLED)
         self.host_entry.config(state=tk.NORMAL)
-        self.interval_entry.config(state=tk.NORMAL)
+        self.time1_entry.config(state=tk.NORMAL)
+        self.time2_entry.config(state=tk.NORMAL)
+        self.time3_entry.config(state=tk.NORMAL)
         self.log_path_entry.config(state=tk.NORMAL)
         self.browse_button.config(state=tk.NORMAL)
         
@@ -211,7 +233,7 @@ class App:
             if os.path.exists(temp_bat_path):
                 os.remove(temp_bat_path)
 
-    # --- System Tray Logic (Corrected) ---
+    # --- System Tray Logic ---
     def hide_to_tray(self):
         """Hides the main window and shows a system tray icon in a separate thread."""
         self.root.withdraw()
@@ -220,7 +242,6 @@ class App:
         menu = (item('Show', self.show_from_tray), item('Exit', self.exit_app))
         self.icon = Icon("API_Monitor", image, "API Connection Monitor", menu)
         
-        # Run the icon in a separate thread
         self.icon_thread = threading.Thread(target=self.icon.run, daemon=True)
         self.icon_thread.start()
 
