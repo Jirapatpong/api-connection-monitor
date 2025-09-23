@@ -43,9 +43,7 @@ class SingleInstance:
 # --- Startup Installation Logic ---
 def install_startup():
     """Creates a shortcut in the user's Startup folder."""
-    # Get the real path of the executable.
     exe_path = os.path.realpath(sys.executable)
-    
     startup_folder = os.path.join(os.getenv('APPDATA'), 'Microsoft\\Windows\\Start Menu\\Programs\\Startup')
     shortcut_path = os.path.join(startup_folder, "API Connection Monitor.lnk")
     
@@ -68,8 +66,8 @@ def run_diagnostics():
     os.makedirs(LOG_FOLDER, exist_ok=True)
     full_path = os.path.join(LOG_FOLDER, file_name)
 
-    script_content = f"""
-@echo off
+    # Use a temporary batch file to avoid complex quoting issues
+    bat_content = f"""@echo off
 (
     ECHO COMPREHENSIVE NETWORK DIAGNOSTIC REPORT
     ECHO =================================================
@@ -92,11 +90,18 @@ def run_diagnostics():
     curl -o nul -s -w "DNS Lookup:      %%{{time_namelookup}}s\\nTCP Connection:  %%{{time_connect}}s\\nSSL Handshake:   %%{{time_appconnect}}s\\nTTFB:              %%{{time_starttransfer}}s\\nTotal Time:      %%{{time_total}}s\\n" https://{TARGET_HOST}
 ) > "{full_path}" 2>&1
 """
+    temp_bat_path = os.path.join(os.environ["TEMP"], "diag_script.bat")
     try:
-        subprocess.run(script_content, shell=True, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        with open(temp_bat_path, "w") as f:
+            f.write(bat_content)
+        
+        subprocess.run([temp_bat_path], shell=True, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
         print(f"[{datetime.now()}] Diagnostics complete. Log saved to {full_path}")
     except Exception as e:
         print(f"[{datetime.now()}] A critical error occurred during diagnostics: {e}")
+    finally:
+        if os.path.exists(temp_bat_path):
+            os.remove(temp_bat_path)
 
 # --- Scheduler Setup ---
 def run_scheduler():
@@ -106,7 +111,6 @@ def run_scheduler():
 
 # --- System Tray Application Setup ---
 def setup_tray_app():
-    # Load icon from embedded base64 data
     icon_data = base64.b64decode(ICON_B64)
     icon_image = Image.open(BytesIO(icon_data))
 
@@ -115,6 +119,7 @@ def setup_tray_app():
         threading.Thread(target=run_diagnostics, daemon=True).start()
 
     def on_open_logs(icon, item):
+        os.makedirs(LOG_FOLDER, exist_ok=True)
         os.startfile(LOG_FOLDER)
 
     def on_exit(icon, item):
@@ -134,13 +139,11 @@ if __name__ == '__main__':
     parser.add_argument('--install', action='store_true', help='Install the application to run on startup.')
     args = parser.parse_args()
 
-    # If the --install flag is used, run the installer and exit.
     if args.install:
         install_startup()
         sys.exit(0)
 
-    # Ensure only one instance of the main application is running.
-    instance_name = "Global\\API_Monitor_Mutex_3B6A8D_v2"
+    instance_name = "Global\\API_Monitor_Mutex_3B6A8D_v3" # Changed version to avoid conflict
     instance = SingleInstance(instance_name)
     if instance.is_running():
         print("Another instance is already running. Exiting.")
@@ -151,13 +154,10 @@ if __name__ == '__main__':
 
     schedule.every(INTERVAL_MINUTES).minutes.do(run_diagnostics)
     
-    # Start the scheduler in a background thread.
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
     
-    # Run diagnostics once on startup after a short delay to let the system settle.
     threading.Timer(10.0, run_diagnostics).start()
 
-    # Run the system tray application on the main thread.
     setup_tray_app()
 
