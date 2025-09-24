@@ -12,14 +12,8 @@ from winerror import ERROR_ALREADY_EXISTS
 import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog, messagebox
 from pystray import MenuItem as item, Icon
-from PIL import Image
-import base64
-from io import BytesIO
+from PIL import Image, ImageDraw
 import configparser
-
-# --- Base64 Encoded Icon (Newly Generated and Verified) ---
-# This new string is guaranteed to be valid and will fix the 'broken data stream' error.
-ICON_B64 = b'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAFESURBVHja7dyxDYAwEERRB5AAMoAMyIAMyACl0FGWgBEKoITGgj2T3L229A9wSAghhBBC/o9w4sFrgsMh2BlssyG0FjLdhrrYdADO7O8EvoK8BGQhC9mYhS2sYAsb2MWOFpCFnGRhE5tYxDY2sYctbGAHO1pAFrKQjVnYwgq2sIFd7GgBWchJFjYxiU1sYhPb2MIOdrCDFaygBWsoRztYwTY2sYctbGAHO9jBFjawhS1sYRe72MEGNrCFLWxhextYQhaysIF17GEnO9jBDjawhS1sYRe72MEGNrCFLWxhBzs6QBa2sCtd7GENC9jBDjawhS1sYRe72MEGNrCFLWxhBztYQBa2sCtd7GENC9jBDjawhS1sYRe72MEGNrCFLWxhBzvYwTp2soMdHSAIWchGFv6vYQc72MEGNrCFLWxhF7vYwQY2sIUtbGEHO9hBFrKQjS38X8MOTUghhBBC/nZ/AY2PAAFTw3GlAAAAAElFTSuQmCC'
 
 # --- Single Instance Lock using a Mutex ---
 class SingleInstance:
@@ -243,33 +237,53 @@ class App:
             if os.path.exists(temp_bat_path):
                 os.remove(temp_bat_path)
 
-    # --- System Tray Logic ---
+    # --- System Tray Logic (Rewritten for stability) ---
+    def create_icon_image(self):
+        """Generates a simple icon image dynamically to avoid base64 errors."""
+        width = 64
+        height = 64
+        color1 = (20, 20, 120)  # Dark Blue
+        color2 = (80, 80, 220)  # Lighter Blue
+        image = Image.new('RGB', (width, height), color1)
+        dc = ImageDraw.Draw(image)
+        dc.rectangle(
+            (width // 2, 0, width, height // 2),
+            fill=color2)
+        dc.rectangle(
+            (0, height // 2, width // 2, height),
+            fill=color2)
+        return image
+        
     def setup_tray_icon_thread(self):
-        icon_data = base64.b64decode(ICON_B64)
-        image = Image.open(BytesIO(icon_data))
+        """Creates and runs the system tray icon in a separate thread from the start."""
+        image = self.create_icon_image()
         menu = (item('Show', self.show_from_tray, default=True), item('Exit', self.exit_app))
         self.icon = Icon("API_Monitor", image, "API Connection Monitor", menu)
+        self.icon.visible = False # Start hidden
         
         tray_thread = threading.Thread(target=self.icon.run, daemon=True)
         tray_thread.start()
 
     def hide_to_tray(self):
+        """Hides the main window and makes the tray icon visible."""
         self.log("Minimizing to system tray...")
         self.root.withdraw()
         self.icon.visible = True
 
     def show_from_tray(self):
+        """Hides the tray icon and shows the main window."""
         self.icon.visible = False
         self.root.after(0, self.root.deiconify)
 
     def exit_app(self):
+        """Cleans up and exits the application."""
         self.icon.stop()
         self.stop_monitoring()
         self.root.quit()
 
 # --- Main Application Execution ---
 if __name__ == '__main__':
-    instance_name = "Global\\API_Monitor_UI_Mutex_v6"
+    instance_name = "Global\\API_Monitor_UI_Mutex_v7"
     instance = SingleInstance(instance_name)
     if instance.is_running():
         root = tk.Tk()
@@ -282,11 +296,9 @@ if __name__ == '__main__':
     root = tk.Tk()
     app = App(root)
     
-    # Hide the main window right after it's created
     root.withdraw()
-    app.icon.visible = True # Make tray icon visible immediately
+    app.icon.visible = True
     
-    # Automatically start monitoring after 2 seconds
     root.after(2000, app.start_monitoring)
     
     root.mainloop()
