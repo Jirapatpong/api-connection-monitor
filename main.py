@@ -117,12 +117,9 @@ class App:
     def load_config(self):
         """Reads settings from the config.ini file."""
         self.config = configparser.ConfigParser()
-        # Determine if running as a PyInstaller bundle
         if getattr(sys, 'frozen', False):
-            # The application is frozen
             application_path = os.path.dirname(sys.executable)
         else:
-            # The application is running as a normal Python script
             application_path = os.path.dirname(os.path.abspath(__file__))
         
         config_path = os.path.join(application_path, 'config.ini')
@@ -251,7 +248,6 @@ class App:
         image = Image.open(BytesIO(icon_data))
         menu = (item('Show', self.show_from_tray, default=True), item('Exit', self.exit_app))
         self.icon = Icon("API_Monitor", image, "API Connection Monitor", menu)
-        self.icon.visible = False
         
         tray_thread = threading.Thread(target=self.icon.run, daemon=True)
         tray_thread.start()
@@ -285,7 +281,11 @@ if __name__ == '__main__':
     root = tk.Tk()
     app = App(root)
     
-    # New: Automatically start monitoring after 2 seconds
+    # Hide the main window right after it's created
+    root.withdraw()
+    app.icon.visible = True # Make tray icon visible immediately
+    
+    # Automatically start monitoring after 2 seconds
     root.after(2000, app.start_monitoring)
     
     root.mainloop()
