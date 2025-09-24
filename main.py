@@ -15,9 +15,9 @@ from pystray import MenuItem as item, Icon
 from PIL import Image
 import base64
 from io import BytesIO
+import configparser
 
-# --- Base64 Encoded Icon (Newly Generated and Verified) ---
-# This new string is guaranteed to be valid and will fix the 'Incorrect padding' error.
+# --- Base64 Encoded Icon (Self-Contained) ---
 ICON_B64 = b'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABRSURBVHja7cEBDQAAAMKg9V9tDB8gEBAQEBAYQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECLwDq3sAAd2+3agAAAAASUVORK5CYII='
 
 # --- Single Instance Lock using a Mutex ---
@@ -49,38 +49,43 @@ class App:
         self.scheduler_thread = None
         self.stop_scheduler = threading.Event()
         self.icon = None
+        
+        # --- Load Configuration ---
+        self.load_config()
 
         # --- UI Elements ---
         self.main_frame = ttk.Frame(root, padding="10")
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Configuration Section
-        config_frame = ttk.LabelFrame(self.main_frame, text="Configuration", padding="10")
+        config_frame = ttk.LabelFrame(self.main_frame, text="Configuration (Loaded from config.ini)", padding="10")
         config_frame.pack(fill=tk.X, pady=5)
         config_frame.columnconfigure(1, weight=1)
 
         ttk.Label(config_frame, text="API Endpoint:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.host_entry = ttk.Entry(config_frame)
-        self.host_entry.insert(0, "tmgposapi.themall.co.th")
+        self.host_entry.insert(0, self.config.get('Settings', 'endpoint', fallback='tmgposapi.themall.co.th'))
         self.host_entry.grid(row=0, column=1, columnspan=2, sticky="ew", padx=5, pady=5)
 
         ttk.Label(config_frame, text="Schedule Times (HH:MM):").grid(row=1, column=0, sticky="w", padx=5, pady=5)
         
         time_frame = ttk.Frame(config_frame)
         time_frame.grid(row=1, column=1, columnspan=2, sticky="ew", padx=5, pady=5)
+        
+        times = [t.strip() for t in self.config.get('Settings', 'schedule_times', fallback='12:00,17:00,19:00').split(',')]
         self.time1_entry = ttk.Entry(time_frame, width=10)
-        self.time1_entry.insert(0, "12:00")
+        self.time1_entry.insert(0, times[0] if len(times) > 0 else "")
         self.time1_entry.pack(side=tk.LEFT, padx=(0, 5))
         self.time2_entry = ttk.Entry(time_frame, width=10)
-        self.time2_entry.insert(0, "17:00")
+        self.time2_entry.insert(0, times[1] if len(times) > 1 else "")
         self.time2_entry.pack(side=tk.LEFT, padx=5)
         self.time3_entry = ttk.Entry(time_frame, width=10)
-        self.time3_entry.insert(0, "19:00")
+        self.time3_entry.insert(0, times[2] if len(times) > 2 else "")
         self.time3_entry.pack(side=tk.LEFT, padx=5)
         
         ttk.Label(config_frame, text="Log File Path:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
         self.log_path_entry = ttk.Entry(config_frame)
-        self.log_path_entry.insert(0, "C:\\Latency\\latency test")
+        self.log_path_entry.insert(0, self.config.get('Settings', 'log_path', fallback='C:\\Latency\\latency test'))
         self.log_path_entry.grid(row=2, column=1, sticky="ew", padx=5, pady=5)
         
         self.browse_button = ttk.Button(config_frame, text="Browse...", command=self.select_log_folder)
@@ -103,13 +108,29 @@ class App:
         self.log_area = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, height=10, relief="flat")
         self.log_area.pack(fill=tk.BOTH, expand=True)
         
-        self.log("Welcome to the API Connection Monitor.")
-        self.log("Configure your settings and click 'Start Monitoring'.")
+        self.log("API Connection Monitor Initialized.")
+        self.log("Reading settings from config.ini...")
 
         self.root.protocol("WM_DELETE_WINDOW", self.hide_to_tray)
-        
-        # New: Setup and run the tray icon from the start
         self.setup_tray_icon_thread()
+
+    def load_config(self):
+        """Reads settings from the config.ini file."""
+        self.config = configparser.ConfigParser()
+        # Determine if running as a PyInstaller bundle
+        if getattr(sys, 'frozen', False):
+            # The application is frozen
+            application_path = os.path.dirname(sys.executable)
+        else:
+            # The application is running as a normal Python script
+            application_path = os.path.dirname(os.path.abspath(__file__))
+        
+        config_path = os.path.join(application_path, 'config.ini')
+        
+        if not os.path.exists(config_path):
+            self.log(f"Warning: config.ini not found. Using default values.")
+        else:
+            self.config.read(config_path)
 
     def select_log_folder(self):
         folder_selected = filedialog.askdirectory()
@@ -224,39 +245,34 @@ class App:
             if os.path.exists(temp_bat_path):
                 os.remove(temp_bat_path)
 
-    # --- System Tray Logic (Rewritten for stability) ---
+    # --- System Tray Logic ---
     def setup_tray_icon_thread(self):
-        """Creates and runs the system tray icon in a separate thread from the start."""
         icon_data = base64.b64decode(ICON_B64)
         image = Image.open(BytesIO(icon_data))
         menu = (item('Show', self.show_from_tray, default=True), item('Exit', self.exit_app))
         self.icon = Icon("API_Monitor", image, "API Connection Monitor", menu)
-        self.icon.visible = False # Start hidden
+        self.icon.visible = False
         
-        # Run the icon in a separate thread
         tray_thread = threading.Thread(target=self.icon.run, daemon=True)
         tray_thread.start()
 
     def hide_to_tray(self):
-        """Hides the main window and makes the tray icon visible."""
         self.log("Minimizing to system tray...")
         self.root.withdraw()
         self.icon.visible = True
 
     def show_from_tray(self):
-        """Hides the tray icon and shows the main window."""
         self.icon.visible = False
         self.root.after(0, self.root.deiconify)
 
     def exit_app(self):
-        """Cleans up and exits the application."""
         self.icon.stop()
         self.stop_monitoring()
-        self.root.quit() # Use quit instead of destroy for cleaner exit
+        self.root.quit()
 
 # --- Main Application Execution ---
 if __name__ == '__main__':
-    instance_name = "Global\\API_Monitor_UI_Mutex_v5"
+    instance_name = "Global\\API_Monitor_UI_Mutex_v6"
     instance = SingleInstance(instance_name)
     if instance.is_running():
         root = tk.Tk()
@@ -268,5 +284,9 @@ if __name__ == '__main__':
         
     root = tk.Tk()
     app = App(root)
+    
+    # New: Automatically start monitoring after 2 seconds
+    root.after(2000, app.start_monitoring)
+    
     root.mainloop()
 
