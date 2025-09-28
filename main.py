@@ -201,6 +201,7 @@ class App:
         os.makedirs(self.log_folder, exist_ok=True)
         full_path = os.path.join(self.log_folder, file_name)
 
+        # THIS IS THE FIX: The '&' character is now escaped with a '^'
         bat_content = f"""@echo off
 (
     ECHO COMPREHENSIVE NETWORK DIAGNOSTIC REPORT
@@ -214,7 +215,7 @@ class App:
     tracert {self.host}
     ECHO.
     ECHO.
-    ECHO ===== 2. DNS LATENCY & RESOLUTION TEST =====
+    ECHO ===== 2. DNS LATENCY ^& RESOLUTION TEST =====
     ECHO.
     powershell -ExecutionPolicy Bypass -Command "Measure-Command {{Resolve-DnsName {self.host} -Type A -ErrorAction SilentlyContinue}}"
     ECHO.
@@ -237,7 +238,7 @@ class App:
             if os.path.exists(temp_bat_path):
                 os.remove(temp_bat_path)
 
-    # --- System Tray Logic (Rewritten for stability) ---
+    # --- System Tray Logic ---
     def create_icon_image(self):
         """Generates a simple icon image dynamically to avoid base64 errors."""
         width = 64
