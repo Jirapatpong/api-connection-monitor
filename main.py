@@ -201,7 +201,6 @@ class App:
         os.makedirs(self.log_folder, exist_ok=True)
         full_path = os.path.join(self.log_folder, file_name)
 
-        # THIS IS THE FIX: The '&' character is now escaped with a '^'
         bat_content = f"""@echo off
 (
     ECHO COMPREHENSIVE NETWORK DIAGNOSTIC REPORT
@@ -217,7 +216,11 @@ class App:
     ECHO.
     ECHO ===== 2. DNS LATENCY ^& RESOLUTION TEST =====
     ECHO.
+    ECHO --- Measuring time to resolve DNS name ---
     powershell -ExecutionPolicy Bypass -Command "Measure-Command {{Resolve-DnsName {self.host} -Type A -ErrorAction SilentlyContinue}}"
+    ECHO.
+    ECHO --- Pinging destination IP to measure latency (4 packets) ---
+    ping -n 4 {self.host}
     ECHO.
     ECHO.
     ECHO ===== 3. CURL API CONNECTION TIMING =====
