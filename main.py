@@ -199,6 +199,10 @@ class App:
         threading.Thread(target=self.run_diagnostics, daemon=True).start()
 
     def run_diagnostics(self):
+        """
+        Runs diagnostics by executing commands directly and capturing their output within Python.
+        This is a more robust method than using a temporary batch file.
+        """
         self.log(f"Running diagnostics for {self.host}...")
         computer_name = socket.gethostname()
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -212,56 +216,64 @@ class App:
             
         full_path = os.path.join(self.log_folder, file_name)
 
-        # --- THIS IS THE FIX: The script now captures output directly instead of relying on file redirection ---
-        bat_content = f"""@echo off
-ECHO COMPREHENSIVE NETWORK DIAGNOSTIC REPORT
-ECHO =================================================
-ECHO Report generated on: %date% at %time%
-ECHO Target Host: {self.host}
-ECHO.
-ECHO.
-ECHO ===== 1. TRACEROUTE TO VIEW NETWORK PATH =====
-ECHO.
-tracert {self.host}
-ECHO.
-ECHO.
-ECHO ===== 2. DNS LATENCY ^& RESOLUTION TEST =====
-ECHO.
-ECHO --- Measuring time to resolve DNS name ---
-powershell -ExecutionPolicy Bypass -Command "Measure-Command {{Resolve-DnsName {self.host} -Type A -ErrorAction SilentlyContinue}}"
-ECHO.
-ECHO --- Pinging destination IP to measure latency (4 packets) ---
-ping -n 4 {self.host}
-ECHO.
-ECHO.
-ECHO ===== 3. CURL API CONNECTION TIMING =====
-ECHO.
-curl -o nul -s -w "DNS Lookup:      %%{{time_namelookup}}s\\nTCP Connection:  %%{{time_connect}}s\\nSSL Handshake:   %%{{time_appconnect}}s\\nTTFB:              %%{{time_starttransfer}}s\\nTotal Time:      %%{{time_total}}s\\n" https://{self.host}
-"""
-        
         try:
-            # Run the commands and capture the output
-            process = subprocess.run(
-                bat_content, 
-                shell=True, 
-                capture_output=True, 
-                text=True, 
-                encoding='utf-8',
-                errors='ignore',
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
-            
-            # Write the captured output to the log file
-            with open(full_path, 'w', encoding='utf-8') as f:
+            with open(full_path, 'w', encoding='utf-8', errors='ignore') as f:
+                f.write(f"COMPREHENSIVE NETWORK DIAGNOSTIC REPORT\n")
+                f.write(f"=================================================\n")
+                f.write(f"Report generated on: {datetime.now().strftime('%Y-%m-%d at %H:%M:%S')}\n")
+                f.write(f"Target Host: {self.host}\n\n")
+
+                # --- 1. Traceroute ---
+                f.write("\n===== 1. TRACEROUTE TO VIEW NETWORK PATH =====\n\n")
+                f.flush()
+                process = subprocess.run(
+                    ['tracert', self.host], 
+                    capture_output=True, text=True, encoding='utf-8', errors='ignore',
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
                 f.write(process.stdout)
-                if process.stderr:
-                    f.write("\n\n--- ERRORS ---\n")
-                    f.write(process.stderr)
-            
+                f.write(process.stderr)
+
+                # --- 2. DNS Test & Ping ---
+                f.write("\n\n===== 2. DNS LATENCY & RESOLUTION TEST =====\n\n")
+                f.write("--- Measuring time to resolve DNS name ---\n")
+                f.flush()
+                ps_command = f"Measure-Command {{Resolve-DnsName {self.host} -Type A -ErrorAction SilentlyContinue}}"
+                process = subprocess.run(
+                    ['powershell', '-ExecutionPolicy', 'Bypass', '-Command', ps_command],
+                    capture_output=True, text=True, encoding='utf-8', errors='ignore',
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+                f.write(process.stdout)
+                f.write(process.stderr)
+                
+                f.write("\n--- Pinging destination IP to measure latency (4 packets) ---\n")
+                f.flush()
+                process = subprocess.run(
+                    ['ping', '-n', '4', self.host],
+                    capture_output=True, text=True, encoding='utf-8', errors='ignore',
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+                f.write(process.stdout)
+                f.write(process.stderr)
+
+                # --- 3. Curl Test ---
+                f.write("\n\n===== 3. CURL API CONNECTION TIMING =====\n\n")
+                f.flush()
+                curl_format = "DNS Lookup:      %{time_namelookup}s\\nTCP Connection:  %{time_connect}s\\nSSL Handshake:   %{time_appconnect}s\\nTTFB:              %{time_starttransfer}s\\nTotal Time:      %{time_total}s\\n"
+                process = subprocess.run(
+                    ['curl', '-s', '-w', curl_format, '-o', 'nul', f"https://{self.host}"],
+                    capture_output=True, text=True, encoding='utf-8', errors='ignore',
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+                f.write(process.stdout)
+                f.write(process.stderr)
+
             self.log(f"Diagnostics complete. Log saved to {full_path}")
 
         except Exception as e:
-            self.log(f"A critical error occurred while trying to run diagnostics: {e}")
+            self.log(f"A critical error occurred while writing the log file: {e}")
+
 
     # --- System Tray Logic ---
     def create_icon_image(self):
@@ -300,7 +312,7 @@ curl -o nul -s -w "DNS Lookup:      %%{{time_namelookup}}s\\nTCP Connection:  %%
 
 # --- Main Application Execution ---
 if __name__ == '__main__':
-    instance_name = "Global\\API_Monitor_UI_Mutex_v8"
+    instance_name = "Global\\API_Monitor_UI_Mutex_v9" # Incremented version
     instance = SingleInstance(instance_name)
     if instance.is_running():
         root = tk.Tk()
