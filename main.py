@@ -207,56 +207,61 @@ class App:
         try:
             os.makedirs(self.log_folder, exist_ok=True)
         except OSError as e:
-            self.log(f"Error creating log directory: {e}")
+            self.log(f"CRITICAL ERROR: Could not create log directory '{self.log_folder}'. Please check permissions. Error: {e}")
             return
             
         full_path = os.path.join(self.log_folder, file_name)
 
+        # --- THIS IS THE FIX: The script now captures output directly instead of relying on file redirection ---
         bat_content = f"""@echo off
-(
-    ECHO COMPREHENSIVE NETWORK DIAGNOSTIC REPORT
-    ECHO =================================================
-    ECHO Report generated on: %date% at %time%
-    ECHO Target Host: {self.host}
-    ECHO.
-    ECHO.
-    ECHO ===== 1. TRACEROUTE TO VIEW NETWORK PATH =====
-    ECHO.
-    tracert {self.host}
-    ECHO.
-    ECHO.
-    ECHO ===== 2. DNS LATENCY ^& RESOLUTION TEST =====
-    ECHO.
-    ECHO --- Measuring time to resolve DNS name ---
-    powershell -ExecutionPolicy Bypass -Command "Measure-Command {{Resolve-DnsName {self.host} -Type A -ErrorAction SilentlyContinue}}"
-    ECHO.
-    ECHO --- Pinging destination IP to measure latency (4 packets) ---
-    ping -n 4 {self.host}
-    ECHO.
-    ECHO.
-    ECHO ===== 3. CURL API CONNECTION TIMING =====
-    ECHO.
-    curl -o nul -s -w "DNS Lookup:      %%{{time_namelookup}}s\\nTCP Connection:  %%{{time_connect}}s\\nSSL Handshake:   %%{{time_appconnect}}s\\nTTFB:              %%{{time_starttransfer}}s\\nTotal Time:      %%{{time_total}}s\\n" https://{self.host}
-) > "{full_path}" 2>&1
+ECHO COMPREHENSIVE NETWORK DIAGNOSTIC REPORT
+ECHO =================================================
+ECHO Report generated on: %date% at %time%
+ECHO Target Host: {self.host}
+ECHO.
+ECHO.
+ECHO ===== 1. TRACEROUTE TO VIEW NETWORK PATH =====
+ECHO.
+tracert {self.host}
+ECHO.
+ECHO.
+ECHO ===== 2. DNS LATENCY ^& RESOLUTION TEST =====
+ECHO.
+ECHO --- Measuring time to resolve DNS name ---
+powershell -ExecutionPolicy Bypass -Command "Measure-Command {{Resolve-DnsName {self.host} -Type A -ErrorAction SilentlyContinue}}"
+ECHO.
+ECHO --- Pinging destination IP to measure latency (4 packets) ---
+ping -n 4 {self.host}
+ECHO.
+ECHO.
+ECHO ===== 3. CURL API CONNECTION TIMING =====
+ECHO.
+curl -o nul -s -w "DNS Lookup:      %%{{time_namelookup}}s\\nTCP Connection:  %%{{time_connect}}s\\nSSL Handshake:   %%{{time_appconnect}}s\\nTTFB:              %%{{time_starttransfer}}s\\nTotal Time:      %%{{time_total}}s\\n" https://{self.host}
 """
-        temp_bat_path = os.path.join(os.environ["TEMP"], "diag_script.bat")
+        
         try:
-            with open(temp_bat_path, "w", encoding='utf-8') as f:
-                f.write(bat_content)
+            # Run the commands and capture the output
+            process = subprocess.run(
+                bat_content, 
+                shell=True, 
+                capture_output=True, 
+                text=True, 
+                encoding='utf-8',
+                errors='ignore',
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
             
-            subprocess.run([temp_bat_path], shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            # Write the captured output to the log file
+            with open(full_path, 'w', encoding='utf-8') as f:
+                f.write(process.stdout)
+                if process.stderr:
+                    f.write("\n\n--- ERRORS ---\n")
+                    f.write(process.stderr)
             
-            # Verify file was created
-            if os.path.exists(full_path) and os.path.getsize(full_path) > 0:
-                 self.log(f"Diagnostics complete. Log saved to {full_path}")
-            else:
-                 self.log(f"Error: Log file was not created. Check permissions for {self.log_folder}")
+            self.log(f"Diagnostics complete. Log saved to {full_path}")
 
         except Exception as e:
             self.log(f"A critical error occurred while trying to run diagnostics: {e}")
-        finally:
-            if os.path.exists(temp_bat_path):
-                os.remove(temp_bat_path)
 
     # --- System Tray Logic ---
     def create_icon_image(self):
