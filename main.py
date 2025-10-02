@@ -45,6 +45,10 @@ class App:
         self.stop_scheduler = threading.Event()
         self.icon = None
         
+        # --- Get Documents folder path ---
+        self.documents_path = os.path.join(os.path.expanduser('~'), 'Documents')
+        self.default_log_path = os.path.join(self.documents_path, 'API Latency Logs')
+        
         # --- Load Configuration ---
         self.load_config()
 
@@ -80,7 +84,7 @@ class App:
         
         ttk.Label(config_frame, text="Log File Path:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
         self.log_path_entry = ttk.Entry(config_frame)
-        self.log_path_entry.insert(0, self.config.get('Settings', 'log_path', fallback='C:\\Latency\\latency test'))
+        self.log_path_entry.insert(0, self.config.get('Settings', 'log_path', fallback=self.default_log_path))
         self.log_path_entry.grid(row=2, column=1, sticky="ew", padx=5, pady=5)
         
         self.browse_button = ttk.Button(config_frame, text="Browse...", command=self.select_log_folder)
@@ -105,6 +109,8 @@ class App:
         
         self.log("API Connection Monitor Initialized.")
         self.log("Reading settings from config.ini...")
+        self.log(f"Default log path set to Documents folder.")
+
 
         self.root.protocol("WM_DELETE_WINDOW", self.hide_to_tray)
         self.setup_tray_icon_thread()
@@ -125,7 +131,7 @@ class App:
             self.config.read(config_path)
 
     def select_log_folder(self):
-        folder_selected = filedialog.askdirectory()
+        folder_selected = filedialog.askdirectory(initialdir=self.documents_path)
         if folder_selected:
             self.log_path_entry.delete(0, tk.END)
             self.log_path_entry.insert(0, folder_selected)
@@ -198,7 +204,12 @@ class App:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         file_name = f"{computer_name}_{timestamp}.txt"
         
-        os.makedirs(self.log_folder, exist_ok=True)
+        try:
+            os.makedirs(self.log_folder, exist_ok=True)
+        except OSError as e:
+            self.log(f"Error creating log directory: {e}")
+            return
+            
         full_path = os.path.join(self.log_folder, file_name)
 
         bat_content = f"""@echo off
@@ -233,10 +244,14 @@ class App:
             with open(temp_bat_path, "w", encoding='utf-8') as f:
                 f.write(bat_content)
             
-            # THE FIX: Removed 'check=True' to prevent the script from crashing on command failures.
             subprocess.run([temp_bat_path], shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
             
-            self.log(f"Diagnostics complete. Log saved to {full_path}")
+            # Verify file was created
+            if os.path.exists(full_path) and os.path.getsize(full_path) > 0:
+                 self.log(f"Diagnostics complete. Log saved to {full_path}")
+            else:
+                 self.log(f"Error: Log file was not created. Check permissions for {self.log_folder}")
+
         except Exception as e:
             self.log(f"A critical error occurred while trying to run diagnostics: {e}")
         finally:
@@ -245,51 +260,42 @@ class App:
 
     # --- System Tray Logic ---
     def create_icon_image(self):
-        """Generates a simple icon image dynamically to avoid base64 errors."""
         width = 64
         height = 64
-        color1 = (20, 20, 120)  # Dark Blue
-        color2 = (80, 80, 220)  # Lighter Blue
+        color1 = (20, 20, 120)
+        color2 = (80, 80, 220)
         image = Image.new('RGB', (width, height), color1)
         dc = ImageDraw.Draw(image)
-        dc.rectangle(
-            (width // 2, 0, width, height // 2),
-            fill=color2)
-        dc.rectangle(
-            (0, height // 2, width // 2, height),
-            fill=color2)
+        dc.rectangle((width // 2, 0, width, height // 2), fill=color2)
+        dc.rectangle((0, height // 2, width // 2, height), fill=color2)
         return image
         
     def setup_tray_icon_thread(self):
-        """Creates and runs the system tray icon in a separate thread from the start."""
         image = self.create_icon_image()
         menu = (item('Show', self.show_from_tray, default=True), item('Exit', self.exit_app))
         self.icon = Icon("API_Monitor", image, "API Connection Monitor", menu)
-        self.icon.visible = False # Start hidden
+        self.icon.visible = False
         
         tray_thread = threading.Thread(target=self.icon.run, daemon=True)
         tray_thread.start()
 
     def hide_to_tray(self):
-        """Hides the main window and makes the tray icon visible."""
         self.log("Minimizing to system tray...")
         self.root.withdraw()
         self.icon.visible = True
 
     def show_from_tray(self):
-        """Hides the tray icon and shows the main window."""
         self.icon.visible = False
         self.root.after(0, self.root.deiconify)
 
     def exit_app(self):
-        """Cleans up and exits the application."""
         self.icon.stop()
         self.stop_monitoring()
         self.root.quit()
 
 # --- Main Application Execution ---
 if __name__ == '__main__':
-    instance_name = "Global\\API_Monitor_UI_Mutex_v7"
+    instance_name = "Global\\API_Monitor_UI_Mutex_v8"
     instance = SingleInstance(instance_name)
     if instance.is_running():
         root = tk.Tk()
