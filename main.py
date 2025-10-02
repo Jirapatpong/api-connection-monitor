@@ -201,7 +201,6 @@ class App:
     def run_diagnostics(self):
         """
         Runs diagnostics by executing commands directly and capturing their output within Python.
-        This is a more robust method than using a temporary batch file.
         """
         self.log(f"Running diagnostics for {self.host}...")
         computer_name = socket.gethostname()
@@ -223,8 +222,37 @@ class App:
                 f.write(f"Report generated on: {datetime.now().strftime('%Y-%m-%d at %H:%M:%S')}\n")
                 f.write(f"Target Host: {self.host}\n\n")
 
-                # --- 1. Traceroute ---
-                f.write("\n===== 1. TRACEROUTE TO VIEW NETWORK PATH =====\n\n")
+                # --- 1. Ping Local DNS Servers ---
+                f.write("\n===== 1. PING LOCAL DNS SERVERS =====\n\n")
+                f.write("--- Finding and Pinging configured DNS servers ---\n")
+                f.flush()
+                ps_get_dns_cmd = "(Get-DnsClientServerAddress -AddressFamily IPv4).ServerAddresses"
+                dns_process = subprocess.run(
+                    ['powershell', '-Command', ps_get_dns_cmd],
+                    capture_output=True, text=True, encoding='utf-8', errors='ignore',
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+                if dns_process.stdout:
+                    dns_servers = [s.strip() for s in dns_process.stdout.strip().split('\n') if s.strip()]
+                    f.write(f"Found DNS Servers: {', '.join(dns_servers)}\n\n")
+                    for server in dns_servers:
+                        f.write(f"--- Pinging DNS Server: {server} (4 packets) ---\n")
+                        f.flush()
+                        ping_dns_process = subprocess.run(
+                            ['ping', '-n', '4', server],
+                            capture_output=True, text=True, encoding='utf-8', errors='ignore',
+                            creationflags=subprocess.CREATE_NO_WINDOW
+                        )
+                        f.write(ping_dns_process.stdout)
+                        f.write(ping_dns_process.stderr)
+                        f.write("\n")
+                else:
+                    f.write("Could not automatically determine DNS servers.\n")
+                    f.write(dns_process.stderr)
+
+
+                # --- 2. Traceroute ---
+                f.write("\n\n===== 2. TRACEROUTE TO VIEW NETWORK PATH =====\n\n")
                 f.flush()
                 process = subprocess.run(
                     ['tracert', self.host], 
@@ -234,8 +262,8 @@ class App:
                 f.write(process.stdout)
                 f.write(process.stderr)
 
-                # --- 2. DNS Test & Ping ---
-                f.write("\n\n===== 2. DNS LATENCY & RESOLUTION TEST =====\n\n")
+                # --- 3. DNS Test & Ping Destination ---
+                f.write("\n\n===== 3. DNS LATENCY & RESOLUTION TEST =====\n\n")
                 f.write("--- Measuring time to resolve DNS name ---\n")
                 f.flush()
                 ps_command = f"Measure-Command {{Resolve-DnsName {self.host} -Type A -ErrorAction SilentlyContinue}}"
@@ -257,8 +285,8 @@ class App:
                 f.write(process.stdout)
                 f.write(process.stderr)
 
-                # --- 3. Curl Test ---
-                f.write("\n\n===== 3. CURL API CONNECTION TIMING =====\n\n")
+                # --- 4. Curl Test ---
+                f.write("\n\n===== 4. CURL API CONNECTION TIMING =====\n\n")
                 f.flush()
                 curl_format = "DNS Lookup:      %{time_namelookup}s\\nTCP Connection:  %{time_connect}s\\nSSL Handshake:   %{time_appconnect}s\\nTTFB:              %{time_starttransfer}s\\nTotal Time:      %{time_total}s\\n"
                 process = subprocess.run(
@@ -312,7 +340,7 @@ class App:
 
 # --- Main Application Execution ---
 if __name__ == '__main__':
-    instance_name = "Global\\API_Monitor_UI_Mutex_v9" # Incremented version
+    instance_name = "Global\\API_Monitor_UI_Mutex_v10" # Incremented version
     instance = SingleInstance(instance_name)
     if instance.is_running():
         root = tk.Tk()
