@@ -233,10 +233,12 @@ class App:
             with open(temp_bat_path, "w", encoding='utf-8') as f:
                 f.write(bat_content)
             
-            subprocess.run([temp_bat_path], shell=True, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            # THE FIX: Removed 'check=True' to prevent the script from crashing on command failures.
+            subprocess.run([temp_bat_path], shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            
             self.log(f"Diagnostics complete. Log saved to {full_path}")
         except Exception as e:
-            self.log(f"A critical error occurred during diagnostics: {e}")
+            self.log(f"A critical error occurred while trying to run diagnostics: {e}")
         finally:
             if os.path.exists(temp_bat_path):
                 os.remove(temp_bat_path)
